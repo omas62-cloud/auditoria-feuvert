@@ -71,7 +71,7 @@ window.onerror = function(msg, src, line, col){
     progress: { label:'En curso',   color:'#3B7DD8', bg:'#E9F1FB' },
     pending:  { label:'Pendiente',  color:'#8A938E', bg:'#F0F2F1' }
   };
-  var TEAM = ['Sin asignar','Gerente','Jefe de taller','Resp. comercial','Recepción','Almacén','Equipo de ventas'];
+  var TEAM = ['Director','Jefe de Tienda','Jefe de Taller','Jefe de Servicio Regional','Coordinador de flotas','Director Regional','Otro'];
   var CENTERS = ['Valladolid','León','Alfonso Molina','Lugo','Ourense','Zamora','Valladolid II','Renfe','Oleiros','Ponferrada','Marineda','Ferrol','Arteixo','Vigo'];
   var ICON_DEF = {
     store:{paths:['M3 9l1.5-5h15L21 9','M4.5 9v10h15V9','M9 19v-5h6v5']},
@@ -148,7 +148,7 @@ window.onerror = function(msg, src, line, col){
   }catch(e){} }
 
   function uid(p){ return (p||'x') + Math.random().toString(36).slice(2,7); }
-  function getEval(id){ return state.evals[id] || {status:'pending',score:0,comment:'',action:'',responsible:'Sin asignar',due:'',photos:[]}; }
+  function getEval(id){ return state.evals[id] || {status:'pending',score:0,comment:'',action:'',responsible:'Director',due:'',photos:[]}; }
   function patchEval(id, patch, doRender){
     var cur=getEval(id); var next={}; for(var k in cur) next[k]=cur[k]; for(var k2 in patch) next[k2]=patch[k2];
     state.evals[id]=next; persist(); if(doRender!==false) render();
@@ -192,7 +192,7 @@ window.onerror = function(msg, src, line, col){
     areas.forEach(function(a){ a.elements.forEach(function(el){ var e=evals[el.id]||{};
       if(e.status==='bad'||e.status==='warn'){ var m=STATUS[e.status];
         actionPlan.push({ name:el.name, action:e.action||'Definir acción correctiva', color:m.color,
-          responsible:e.responsible||'Sin asignar', dueText:fmtDate(e.due) }); } }); });
+          responsible:e.responsible||'Director', dueText:fmtDate(e.due) }); } }); });
     return { biz:biz, overall:overall, groups:groups, actionPlan:actionPlan };
   }
 
