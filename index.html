@@ -148,22 +148,59 @@ window.onerror = function(msg, src, line, col){
     history:[], savedView:null, statCenter:null, returnTo:'dashboard'
   };
 
-  function loadStore(){
+  // ---- Almacenamiento: IndexedDB (gran capacidad) con respaldo a localStorage ----
+  var DB_NAME='fv_audit_db', DB_STORE='kv', DB_KEY='state';
+  function idbOpen(cb){
     try{
-      var raw = localStorage.getItem(STORE_KEY);
-      if(raw){ var d=JSON.parse(raw);
-        if(d.areas&&d.areas.length) state.areas=d.areas;
-        state.evals=d.evals||{};
-        state.center=d.center||'Valladolid';
-        state.history=d.history||[];
-        // Migración: foto única -> array de fotos
-        Object.keys(state.evals).forEach(function(id){ var ev=state.evals[id]; if(!ev) return; if(!ev.photos){ ev.photos = ev.photo ? [ev.photo] : []; } delete ev.photo; });
-      }
-    }catch(e){}
+      if(!window.indexedDB){ cb('no-idb'); return; }
+      var req=indexedDB.open(DB_NAME,1);
+      req.onupgradeneeded=function(){ try{ req.result.createObjectStore(DB_STORE); }catch(e){} };
+      req.onsuccess=function(){ cb(null,req.result); };
+      req.onerror=function(){ cb(req.error||'err'); };
+    }catch(e){ cb(e); }
   }
-  function persist(){ try{
-    localStorage.setItem(STORE_KEY, JSON.stringify({areas:state.areas,evals:state.evals,center:state.center,history:state.history}));
-  }catch(e){ flash('No se pudo guardar: memoria del dispositivo llena. Reduce el número de fotos.'); } }
+  function idbGet(cb){
+    idbOpen(function(err,db){ if(err){ cb(err); return; }
+      try{ var tx=db.transaction(DB_STORE,'readonly'); var r=tx.objectStore(DB_STORE).get(DB_KEY);
+        r.onsuccess=function(){ cb(null,r.result); }; r.onerror=function(){ cb(r.error||'err'); };
+      }catch(e){ cb(e); }
+    });
+  }
+  function idbSet(val,cb){
+    idbOpen(function(err,db){ if(err){ cb&&cb(err); return; }
+      try{ var tx=db.transaction(DB_STORE,'readwrite'); tx.objectStore(DB_STORE).put(val,DB_KEY);
+        tx.oncomplete=function(){ cb&&cb(null); }; tx.onerror=function(){ cb&&cb(tx.error||'err'); };
+      }catch(e){ cb&&cb(e); }
+    });
+  }
+  function snapshotData(){ return {areas:state.areas,evals:state.evals,center:state.center,history:state.history}; }
+  function applyData(d){
+    if(!d) return;
+    if(d.areas&&d.areas.length) state.areas=d.areas;
+    state.evals=d.evals||{};
+    state.center=d.center||'Valladolid';
+    state.history=d.history||[];
+    // Migración: foto única -> array de fotos
+    Object.keys(state.evals).forEach(function(id){ var ev=state.evals[id]; if(!ev) return; if(!ev.photos){ ev.photos = ev.photo ? [ev.photo] : []; } delete ev.photo; });
+  }
+  function loadStore(done){
+    idbGet(function(err,d){
+      if(!err && d){ applyData(d); done&&done(); return; }
+      // Sin datos en IndexedDB: migrar desde localStorage si existieran
+      try{ var raw=localStorage.getItem(STORE_KEY); if(raw){ applyData(JSON.parse(raw)); idbSet(snapshotData()); } }catch(e){}
+      done&&done();
+    });
+  }
+  var persistWarned=false;
+  function persist(){
+    idbSet(snapshotData(), function(err){
+      if(err){
+        // Respaldo a localStorage (puede fallar por tamaño, pero IndexedDB es lo habitual)
+        try{ localStorage.setItem(STORE_KEY, JSON.stringify(snapshotData())); }
+        catch(e){ if(!persistWarned){ persistWarned=true; flash('No se pudo guardar el almacenamiento.'); } }
+      }
+    });
+  }
 
   function uid(p){ return (p||'x') + Math.random().toString(36).slice(2,7); }
   function getEval(id){ return state.evals[id] || {status:'pending',score:0,comment:'',action:'',responsible:'Director',due:'',photos:[]}; }
@@ -689,8 +726,8 @@ window.onerror = function(msg, src, line, col){
     else if(k==='photos'){ var fs=el.files; if(!fs||!fs.length) return; var cur=(getEval(state.elementId).photos||[]).slice(); var room=10-cur.length; if(room<=0) return; var arr=Array.prototype.slice.call(fs,0,room); var pending=arr.length; arr.forEach(function(f){ compressImage(f,function(d){ cur.push(d); pending--; if(pending===0){ patchEval(state.elementId,{photos:cur}); } }); }); }
   });
 
-  loadStore();
   render();
+  loadStore(function(){ render(); });
 })();
 </script>
 </body>
