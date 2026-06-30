@@ -120,6 +120,24 @@ window.onerror = function(msg, src, line, col){
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function escA(s){ return esc(s).replace(/"/g,'&quot;'); }
   function clone(o){ return JSON.parse(JSON.stringify(o)); }
+  // Comprime/redimensiona una imagen a JPEG para que quepa en localStorage y persista al cerrar la app
+  function compressImage(file, cb){
+    var fr=new FileReader();
+    fr.onload=function(){
+      var img=new Image();
+      img.onload=function(){
+        var MAX=1280, w=img.width, h=img.height;
+        if(w>h && w>MAX){ h=Math.round(h*MAX/w); w=MAX; }
+        else if(h>=w && h>MAX){ w=Math.round(w*MAX/h); h=MAX; }
+        var c=document.createElement('canvas'); c.width=w; c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        try{ cb(c.toDataURL('image/jpeg',0.72)); }catch(e){ cb(fr.result); }
+      };
+      img.onerror=function(){ cb(fr.result); };
+      img.src=fr.result;
+    };
+    fr.readAsDataURL(file);
+  }
 
   var state = {
     screen:'home', homeVariant:0, areaId:null, elementId:null,
@@ -145,7 +163,7 @@ window.onerror = function(msg, src, line, col){
   }
   function persist(){ try{
     localStorage.setItem(STORE_KEY, JSON.stringify({areas:state.areas,evals:state.evals,center:state.center,history:state.history}));
-  }catch(e){} }
+  }catch(e){ flash('No se pudo guardar: memoria del dispositivo llena. Reduce el número de fotos.'); } }
 
   function uid(p){ return (p||'x') + Math.random().toString(36).slice(2,7); }
   function getEval(id){ return state.evals[id] || {status:'pending',score:0,comment:'',action:'',responsible:'Director',due:'',photos:[]}; }
@@ -186,7 +204,7 @@ window.onerror = function(msg, src, line, col){
       ringLight:'conic-gradient(#fff '+(score*3.6)+'deg, rgba(255,255,255,.25) 0deg)' };
     var groups = areas.map(function(a){ return { name:a.name, items:a.elements.map(function(el){ var e=evals[el.id]||{status:'pending'}; var m=STATUS[e.status]||STATUS.pending;
       return { name:el.name, color:m.color, statusLabel:m.label,
-        scoreText:(e.status&&e.status!=='pending'&&e.score)?' '+e.score+'/5':'',
+        scoreText:'',
         comment:e.comment||'', hasComment:!!(e.comment), photos:(e.photos&&e.photos.length)?e.photos:(e.photo?[e.photo]:[]) }; }) }; });
     var actionPlan=[];
     areas.forEach(function(a){ a.elements.forEach(function(el){ var e=evals[el.id]||{};
@@ -261,18 +279,29 @@ window.onerror = function(msg, src, line, col){
   function findHistory(id){ for(var i=0;i<state.history.length;i++) if(state.history[i].id===id) return state.history[i]; return null; }
 
   // ---- PDF / email ----
+  function evidenceList(rep){
+    var out=[];
+    rep.groups.forEach(function(g){ g.items.forEach(function(it){ if(it.photos&&it.photos.length){ it.photos.forEach(function(p){ out.push({area:g.name, name:it.name, color:it.color, status:it.statusLabel, src:p}); }); } }); });
+    return out;
+  }
   function buildPdfDoc(){
     return new Promise(function(resolve,reject){
-      var el=document.getElementById('a4-report');
-      if(!el){ reject(new Error('no-target')); return; }
       if(!window.html2canvas || !window.jspdf){ reject(new Error('libs')); return; }
-      window.html2canvas(el,{scale:2,backgroundColor:'#ffffff',useCORS:true,width:794,height:1123,windowWidth:794,windowHeight:1123}).then(function(canvas){
-        var img=canvas.toDataURL('image/jpeg',0.94);
-        var JsPDF=window.jspdf.jsPDF;
-        var pdf=new JsPDF({unit:'mm',format:'a4',orientation:'portrait'});
-        pdf.addImage(img,'JPEG',0,0,210,297,undefined,'FAST');
-        resolve(pdf);
-      }).catch(reject);
+      var pages=Array.prototype.slice.call(document.querySelectorAll('.a4-page'));
+      if(!pages.length){ reject(new Error('no-target')); return; }
+      var JsPDF=window.jspdf.jsPDF;
+      var pdf=new JsPDF({unit:'mm',format:'a4',orientation:'portrait'});
+      var i=0;
+      function next(){
+        if(i>=pages.length){ resolve(pdf); return; }
+        window.html2canvas(pages[i],{scale:2,backgroundColor:'#ffffff',useCORS:true,width:794,height:1123,windowWidth:794,windowHeight:1123}).then(function(canvas){
+          var img=canvas.toDataURL('image/jpeg',0.92);
+          if(i>0) pdf.addPage('a4','portrait');
+          pdf.addImage(img,'JPEG',0,0,210,297,undefined,'FAST');
+          i++; next();
+        }).catch(reject);
+      }
+      next();
     });
   }
   function curReport(){ return state.savedView || computeReport(state.areas,state.evals,state.center); }
@@ -428,8 +457,8 @@ window.onerror = function(msg, src, line, col){
     h+='</div>';
     h+='<div style="padding:16px 18px 30px;display:flex;flex-direction:column;gap:11px">';
     if(state.editing) h+='<div style="background:#FBF1DA;border:1px solid #F1E2BC;border-radius:12px;padding:11px 13px;font-size:12.5px;font-weight:600;color:#8A6D1E;display:flex;align-items:center;gap:9px"><span style="font-size:15px">✏️</span> Pulsa la × roja para eliminar cualquier punto de control.</div>';
-    area.elements.forEach(function(el){ var e=getEval(el.id); var m=STATUS[e.status]; var scoreText=(e.status!=='pending'&&e.score)?' · '+e.score+'/5':'';
-      h+='<div style="background:#fff;border:1px solid #E9EDEB;border-radius:15px;display:flex;align-items:center;overflow:hidden"><button data-act="openElement" data-id="'+el.id+'" style="flex:1;text-align:left;background:transparent;border:none;padding:15px;cursor:pointer;display:flex;align-items:center;gap:13px;min-width:0"><span style="width:13px;height:13px;border-radius:50%;background:'+m.color+';flex:none;box-shadow:0 0 0 4px '+m.bg+'"></span><span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:700;color:#1A2520;line-height:1.3">'+esc(el.name)+'</span><span style="display:block;font-size:12px;font-weight:600;color:'+m.color+';margin-top:3px">'+esc(m.label)+scoreText+'</span></span></button>';
+    area.elements.forEach(function(el){ var e=getEval(el.id); var m=STATUS[e.status];
+      h+='<div style="background:#fff;border:1px solid #E9EDEB;border-radius:15px;display:flex;align-items:center;overflow:hidden"><button data-act="openElement" data-id="'+el.id+'" style="flex:1;text-align:left;background:transparent;border:none;padding:15px;cursor:pointer;display:flex;align-items:center;gap:13px;min-width:0"><span style="width:13px;height:13px;border-radius:50%;background:'+m.color+';flex:none;box-shadow:0 0 0 4px '+m.bg+'"></span><span style="flex:1;min-width:0"><span style="display:block;font-size:14px;font-weight:700;color:#1A2520;line-height:1.3">'+esc(el.name)+'</span><span style="display:block;font-size:12px;font-weight:600;color:'+m.color+';margin-top:3px">'+esc(m.label)+'</span></span></button>';
       if(state.editing) h+='<button data-act="removeElement" data-id="'+el.id+'" style="background:#FBE7E9;border:none;color:#CC3340;padding:0 16px;font-size:22px;cursor:pointer;align-self:stretch;font-weight:700">×</button>';
       else h+='<button data-act="openElement" data-id="'+el.id+'" style="background:transparent;border:none;color:#C4CBC7;padding:0 15px;font-size:20px;cursor:pointer">›</button>';
       h+='</div>';
@@ -453,12 +482,6 @@ window.onerror = function(msg, src, line, col){
     h+='<div><div style="font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#8A938E;margin-bottom:9px">Valoración</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px">';
     ['ok','warn','bad'].forEach(function(k){ var m=STATUS[k]; var on=e.status===k;
       h+='<button data-act="status" data-status="'+k+'" style="'+statusBtnStyle(on,m)+'"><span style="width:18px;height:18px;border-radius:50%;background:'+m.color+';display:block;margin:0 auto 7px"></span>'+m.label+'</button>';
-    });
-    h+='</div></div>';
-    // score
-    h+='<div style="background:#fff;border:1px solid #E9EDEB;border-radius:16px;padding:16px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:11px"><span style="font-size:13.5px;font-weight:700;color:#1A2520">Puntuación</span><span style="font-size:12px;font-weight:600;color:#8A938E">'+(e.score? e.score+' de 5':'Sin puntuar')+'</span></div><div style="display:flex;gap:8px">';
-    [1,2,3,4,5].forEach(function(n){ var on=e.score===n;
-      h+='<button data-act="score" data-n="'+n+'" style="flex:1;border:1.5px solid;border-radius:11px;padding:11px 0;font-size:15px;font-weight:800;cursor:pointer;'+(on?'background:#017C36;border-color:#017C36;color:#fff;':'background:#FAFBFA;border-color:#E3E8E5;color:#8A938E;')+'">'+n+'</button>';
     });
     h+='</div></div>';
     // comentario
@@ -562,7 +585,8 @@ window.onerror = function(msg, src, line, col){
     var rep=state.savedView||computeReport(state.areas,state.evals,state.center);
     var ov=rep.overall, biz=rep.biz, ap=rep.actionPlan, groups=rep.groups;
     var h='<div style="background:#454B47;min-height:100vh;padding-bottom:96px">';
-    h+='<div style="display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 14px) 18px 14px;color:#fff"><button data-act="pdfBack" style="background:rgba(255,255,255,.16);border:none;color:#fff;width:36px;height:36px;border-radius:11px;font-size:20px;cursor:pointer">‹</button><div style="font-size:14px;font-weight:800">Vista previa del informe</div><div style="margin-left:auto;font-size:11px;font-weight:700;background:rgba(255,255,255,.16);color:#fff;padding:5px 10px;border-radius:8px">A4 · 1 página</div></div>';
+    var nPhotoPages=Math.ceil(evidenceList(rep).length/6); var nPages=1+nPhotoPages;
+    h+='<div style="display:flex;align-items:center;gap:12px;padding:calc(env(safe-area-inset-top) + 14px) 18px 14px;color:#fff"><button data-act="pdfBack" style="background:rgba(255,255,255,.16);border:none;color:#fff;width:36px;height:36px;border-radius:11px;font-size:20px;cursor:pointer">‹</button><div style="font-size:14px;font-weight:800">Vista previa del informe</div><div style="margin-left:auto;font-size:11px;font-weight:700;background:rgba(255,255,255,.16);color:#fff;padding:5px 10px;border-radius:8px">A4 · '+nPages+(nPages===1?' página':' páginas')+'</div></div>';
     // preview
     h+='<div style="background:#fff;margin:0 14px;border-radius:8px;overflow:hidden;box-shadow:0 16px 40px rgba(0,0,0,.35)"><div style="background:linear-gradient(135deg,#017C36,#02A546);color:#fff;padding:22px 22px 20px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="font-style:italic;font-weight:800;font-size:22px;letter-spacing:-.5px">Feu Vert</div><div style="text-align:right;font-size:10.5px;font-weight:600;opacity:.9">INFORME DE<br>AUDITORÍA</div></div><div style="font-size:18px;font-weight:800;margin-top:16px">'+esc(biz.name)+'</div><div style="font-size:12px;font-weight:500;opacity:.92;margin-top:2px">'+esc(biz.location)+'</div><div style="display:flex;gap:18px;margin-top:12px;font-size:11px;font-weight:600;opacity:.92"><span>Fecha: '+esc(biz.date)+'</span><span>Auditor: '+esc(biz.auditor)+'</span></div></div>';
     h+='<div style="padding:20px 22px"><div style="display:flex;gap:12px;align-items:center;padding-bottom:18px;border-bottom:1px solid #ECEFED"><div style="width:60px;height:60px;border-radius:50%;flex:none;display:grid;place-items:center;background:'+ov.ring+'"><div style="width:46px;height:46px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:17px;font-weight:800;color:'+ov.color+'">'+ov.scoreLabel+'</div></div><div><div style="font-size:13px;font-weight:800;color:'+ov.color+'">'+esc(ov.label)+'</div><div style="font-size:11.5px;color:#69756E;font-weight:600;margin-top:3px">'+ov.evaluated+'/'+ov.total+' puntos · '+ov.ok+' correctos · '+ov.warn+' atención · '+ov.bad+' incidencias</div></div></div>';
@@ -574,13 +598,14 @@ window.onerror = function(msg, src, line, col){
     h+='<div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:412px;padding:14px 18px;background:linear-gradient(0deg,#454B47 75%,rgba(69,75,71,0));display:flex;gap:10px">'+((state.returnTo==='centerDetail'&&state.savedView&&state.savedView.evals)?'<button data-act="reopenAudit" data-id="'+escA(state.savedView.id)+'" style="flex:1;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:14px;padding:15px;font-size:14px;font-weight:700;cursor:pointer">✏️ Editar</button>':'')+'<button data-act="downloadPdf" style="flex:1;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:14px;padding:15px;font-size:14px;font-weight:700;cursor:pointer">'+(state.busy?'Generando…':'Descargar PDF')+'</button><button data-act="openEmail" style="flex:1.3;background:#fff;color:#017C36;border:none;border-radius:14px;padding:15px;font-size:14px;font-weight:800;cursor:pointer">Enviar por email</button></div>';
     // hidden A4
     h+=renderA4(rep);
+    h+=renderA4Photos(rep);
     h+='</div>';
     return h;
   }
 
   function renderA4(rep){
     var ov=rep.overall, biz=rep.biz, ap=rep.actionPlan, groups=rep.groups;
-    var h='<div id="a4-report" style="position:fixed;left:-10000px;top:0;width:794px;height:1123px;background:#fff;color:#1A2520;font-family:\'Plus Jakarta Sans\',sans-serif;overflow:hidden">';
+    var h='<div id="a4-report" class="a4-page" style="position:fixed;left:-10000px;top:0;width:794px;height:1123px;background:#fff;color:#1A2520;font-family:\'Plus Jakarta Sans\',sans-serif;overflow:hidden">';
     h+='<div style="background:linear-gradient(135deg,#017C36,#02A546);color:#fff;padding:30px 40px 26px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="font-style:italic;font-weight:800;font-size:30px;letter-spacing:-.5px">Feu Vert</div><div style="text-align:right;font-size:12px;font-weight:700;letter-spacing:.16em;opacity:.92;line-height:1.5">INFORME DE<br>AUDITORÍA COMERCIAL</div></div><div style="font-size:25px;font-weight:800;margin-top:18px">'+esc(biz.name)+'</div><div style="font-size:13px;font-weight:500;opacity:.92;margin-top:3px">'+esc(biz.location)+'</div><div style="display:flex;gap:28px;margin-top:14px;font-size:12.5px;font-weight:600;opacity:.95"><span>Fecha: '+esc(biz.date)+'</span><span>Auditor: '+esc(biz.auditor)+'</span></div></div>';
     h+='<div style="display:flex;align-items:center;gap:24px;padding:22px 40px;border-bottom:2px solid #ECEFED"><div style="width:84px;height:84px;border-radius:50%;border:7px solid '+ov.color+';display:grid;place-items:center;flex:none"><div style="text-align:center"><div style="font-size:26px;font-weight:800;color:'+ov.color+';line-height:1">'+ov.scoreLabel+'</div><div style="font-size:9px;font-weight:700;color:#8A938E;letter-spacing:.08em">ÍNDICE</div></div></div><div style="flex:1"><div style="display:inline-block;background:'+ov.bg+';color:'+ov.color+';font-size:15px;font-weight:800;padding:6px 14px;border-radius:9px">'+esc(ov.label)+'</div><div style="font-size:13px;color:#69756E;font-weight:600;margin-top:9px">'+ov.evaluated+' de '+ov.total+' puntos evaluados</div></div><div style="display:flex;gap:9px;flex:none"><div style="background:#E6F4EC;border-radius:12px;padding:11px 15px;text-align:center"><div style="font-size:22px;font-weight:800;color:#1B8C4E;line-height:1">'+ov.ok+'</div><div style="font-size:10px;font-weight:700;color:#1B8C4E;margin-top:3px">Correctos</div></div><div style="background:#FBF1DA;border-radius:12px;padding:11px 15px;text-align:center"><div style="font-size:22px;font-weight:800;color:#CE8500;line-height:1">'+ov.warn+'</div><div style="font-size:10px;font-weight:700;color:#CE8500;margin-top:3px">Atención</div></div><div style="background:#FBE7E9;border-radius:12px;padding:11px 15px;text-align:center"><div style="font-size:22px;font-weight:800;color:#CC3340;line-height:1">'+ov.bad+'</div><div style="font-size:10px;font-weight:700;color:#CC3340;margin-top:3px">Incidencias</div></div></div></div>';
     h+='<div style="padding:20px 40px 8px"><div style="font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#8A938E;margin-bottom:13px">Detalle por áreas</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 32px;align-items:start">';
@@ -590,6 +615,24 @@ window.onerror = function(msg, src, line, col){
     h+='<div style="position:absolute;bottom:0;left:0;right:0;padding:14px 40px;border-top:1px solid #ECEFED;display:flex;justify-content:space-between;font-size:10px;color:#A6AEA9;font-weight:600"><span>Feu Vert · Auditoría Comercial de Centro</span><span>Generado el '+esc(biz.date)+'</span></div>';
     h+='</div>';
     return h;
+  }
+
+  // Páginas A4 de evidencia fotográfica (6 fotos por página, tamaño contenido)
+  function renderA4Photos(rep){
+    var ev=evidenceList(rep);
+    if(!ev.length) return '';
+    var perPage=6, pages=Math.ceil(ev.length/perPage), out='';
+    for(var pg=0; pg<pages; pg++){
+      var slice=ev.slice(pg*perPage,(pg+1)*perPage);
+      out+='<div class="a4-page" style="position:fixed;left:-10000px;top:0;width:794px;height:1123px;background:#fff;color:#1A2520;font-family:\'Plus Jakarta Sans\',sans-serif;overflow:hidden">';
+      out+='<div style="background:linear-gradient(135deg,#017C36,#02A546);color:#fff;padding:24px 40px"><div style="display:flex;justify-content:space-between;align-items:center"><div style="font-style:italic;font-weight:800;font-size:24px">Feu Vert</div><div style="font-size:11px;font-weight:700;letter-spacing:.16em;opacity:.92">EVIDENCIA FOTOGRÁFICA'+(pages>1?' · '+(pg+1)+'/'+pages:'')+'</div></div></div>';
+      out+='<div style="padding:28px 40px;display:grid;grid-template-columns:1fr 1fr;gap:22px 28px;align-content:start">';
+      slice.forEach(function(it){
+        out+='<div><div style="width:100%;height:300px;border-radius:12px;overflow:hidden;background:#F0F2F1;border:1px solid #E6EAE8"><img src="'+escA(it.src)+'" style="width:100%;height:100%;object-fit:cover;display:block"/></div><div style="display:flex;align-items:center;gap:7px;margin-top:9px"><span style="width:8px;height:8px;border-radius:50%;background:'+it.color+';flex:none"></span><div style="font-size:11.5px;font-weight:700;color:#1A2520;line-height:1.25">'+esc(it.name)+'</div></div><div style="font-size:10px;font-weight:600;color:#9AA39E;margin-top:2px;padding-left:15px">'+esc(it.area)+'</div></div>';
+      });
+      out+='</div></div>';
+    }
+    return out;
   }
 
   function renderEmail(){
@@ -642,8 +685,8 @@ window.onerror = function(msg, src, line, col){
     var el=e.target, k=el.dataset.change; if(!k) return;
     if(k==='responsible') patchEval(state.elementId,{responsible:el.value},false);
     else if(k==='due') patchEval(state.elementId,{due:el.value},false);
-    else if(k==='photo'){ var f=el.files&&el.files[0]; if(!f) return; var r=new FileReader(); r.onload=function(){ patchEval(state.elementId,{photos:[r.result]}); }; r.readAsDataURL(f); }
-    else if(k==='photos'){ var fs=el.files; if(!fs||!fs.length) return; var cur=(getEval(state.elementId).photos||[]).slice(); var room=10-cur.length; if(room<=0) return; var arr=Array.prototype.slice.call(fs,0,room); var pending=arr.length; arr.forEach(function(f){ var r=new FileReader(); r.onload=function(){ cur.push(r.result); pending--; if(pending===0){ patchEval(state.elementId,{photos:cur}); } }; r.readAsDataURL(f); }); }
+    else if(k==='photo'){ var f=el.files&&el.files[0]; if(!f) return; compressImage(f,function(d){ patchEval(state.elementId,{photos:[d]}); }); }
+    else if(k==='photos'){ var fs=el.files; if(!fs||!fs.length) return; var cur=(getEval(state.elementId).photos||[]).slice(); var room=10-cur.length; if(room<=0) return; var arr=Array.prototype.slice.call(fs,0,room); var pending=arr.length; arr.forEach(function(f){ compressImage(f,function(d){ cur.push(d); pending--; if(pending===0){ patchEval(state.elementId,{photos:cur}); } }); }); }
   });
 
   loadStore();
