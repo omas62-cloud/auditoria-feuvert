@@ -201,16 +201,16 @@ window.onerror = function(msg, src, line, col){
     if(rep.overall.evaluated===0) return null;
     var id=state.center+'|'+rep.biz.dateISO;
     var snap={ id:id, center:state.center, dateISO:rep.biz.dateISO, dateLabel:rep.biz.date, savedAt:Date.now(),
-      biz:rep.biz, overall:rep.overall, groups:rep.groups, actionPlan:rep.actionPlan };
+      biz:rep.biz, overall:rep.overall, groups:rep.groups, actionPlan:rep.actionPlan,
+      evals:clone(state.evals), areas:clone(state.areas) };
     state.history = [snap].concat(state.history.filter(function(h){ return h.id!==id; }));
     return snap;
   }
-  // Guarda la auditoría y deja todos los items a 0 (manteniendo el resultado visible vía savedView)
+  // Guarda la auditoría en el historial SIN perder los cambios en curso (se puede seguir editando)
   function commitSave(){
     var snap=buildSnapshot();
     if(!snap){ flash('Evalúa al menos un punto para guardar'); return null; }
     state.savedView=snap;
-    state.evals={};
     persist();
     return snap;
   }
@@ -221,7 +221,7 @@ window.onerror = function(msg, src, line, col){
     goArea:function(){ state.screen='area'; state.editing=false; render(); },
     goStats:function(){ state.screen='stats'; state.savedView=null; render(); },
     finalize:function(){ var snap=commitSave(); if(!snap) return; state.screen='dashboard'; state.returnTo='dashboard'; render(); },
-    saveAndStay:function(){ if(state.savedView){ flash('Auditoría guardada ✓'); } else { var s=commitSave(); if(s) flash('Auditoría guardada ✓'); else return; } render(); },
+    saveAndStay:function(){ var s=commitSave(); if(s) flash('Auditoría guardada ✓'); render(); },
     gotoPdf:function(){ state.screen='pdf'; state.returnTo='dashboard'; render(); },
     pdfBack:function(){ state.screen=state.returnTo||'dashboard'; if(state.screen!=='dashboard') state.savedView=null; render(); },
     toggleEdit:function(){ state.editing=!state.editing; render(); },
@@ -255,6 +255,7 @@ window.onerror = function(msg, src, line, col){
     if(act==='pickCenter'){ var name=t.dataset.name; var wasNew=state.centerMode==='new'; state.center=name; state.showCenter=false; persist(); render(); if(wasNew) flash('Nueva auditoría · Feu Vert '+name); return; }
     if(act==='openCenterDetail'){ state.screen='centerDetail'; state.statCenter=t.dataset.center; render(); return; }
     if(act==='openSavedReport'){ var h=findHistory(t.dataset.id); if(h){ state.savedView=h; state.screen='pdf'; state.returnTo='centerDetail'; render(); } return; }
+    if(act==='reopenAudit'){ var ra=findHistory(t.dataset.id); if(ra){ state.evals=ra.evals?clone(ra.evals):{}; if(ra.areas&&ra.areas.length) state.areas=clone(ra.areas); state.center=ra.center; state.savedView=null; state.areaId=null; state.elementId=null; state.editing=false; state.homeEditing=false; state.screen='home'; persist(); render(); flash('Continuando auditoría · '+ra.dateLabel); } return; }
     if(act==='removeAudit'){ state.history=state.history.filter(function(h){return h.id!==t.dataset.id;}); persist(); render(); return; }
   }
   function findHistory(id){ for(var i=0;i<state.history.length;i++) if(state.history[i].id===id) return state.history[i]; return null; }
@@ -471,7 +472,10 @@ window.onerror = function(msg, src, line, col){
       h+='</div>';
     }
     if(photos.length<10){
-      h+='<label style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;border:1.5px dashed #C4CDC7;border-radius:12px;padding:'+(photos.length?'16px':'26px')+';cursor:pointer;background:#FAFBFA"><span style="width:44px;height:44px;border-radius:50%;background:#E6F4EC;color:#017C36;display:grid;place-items:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1z"/><circle cx="12" cy="13" r="3.4"/></svg></span><span style="font-size:13.5px;font-weight:700;color:#5A8C6E">'+(photos.length?'Añadir más imágenes':'Hacer foto o subir imágenes')+'</span><input type="file" accept="image/*" multiple data-change="photos" style="display:none"/></label>';
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+      h+='<label style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:1.5px dashed #C4CDC7;border-radius:12px;padding:16px;cursor:pointer;background:#FAFBFA"><span style="width:42px;height:42px;border-radius:50%;background:#E6F4EC;color:#017C36;display:grid;place-items:center"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l1.5-2h7L17 7h3a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V8a1 1 0 011-1z"/><circle cx="12" cy="13" r="3.4"/></svg></span><span style="font-size:13px;font-weight:700;color:#5A8C6E">Hacer foto</span><input type="file" accept="image/*" capture="environment" data-change="photos" style="display:none"/></label>';
+      h+='<label style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:1.5px dashed #C4CDC7;border-radius:12px;padding:16px;cursor:pointer;background:#FAFBFA"><span style="width:42px;height:42px;border-radius:50%;background:#E6F4EC;color:#017C36;display:grid;place-items:center"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="M21 16l-5-5L5 19"/></svg></span><span style="font-size:13px;font-weight:700;color:#5A8C6E">Subir de galería</span><input type="file" accept="image/*" multiple data-change="photos" style="display:none"/></label>';
+      h+='</div>';
     }
     h+='</div>';
     // plan
@@ -549,7 +553,7 @@ window.onerror = function(msg, src, line, col){
     var h='<div style="padding-bottom:40px;min-height:100vh">';
     h+='<div style="background:'+GRAD+';color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 18px 22px;border-radius:0 0 24px 24px"><div style="display:flex;align-items:center;gap:12px"><button data-act="backFromDetail" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:36px;height:36px;border-radius:11px;font-size:20px;cursor:pointer;flex:none">‹</button><div style="flex:1"><div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.8">Historial de auditorías</div><div style="font-size:19px;font-weight:800;line-height:1.15;margin-top:2px">Feu Vert '+esc(state.statCenter)+'</div></div></div></div>';
     h+='<div style="padding:16px 18px;display:flex;flex-direction:column;gap:11px">';
-    list.forEach(function(hh){ var ov=hh.overall; h+='<div style="background:#fff;border:1px solid #E9EDEB;border-radius:16px;display:flex;align-items:center;overflow:hidden"><button data-act="openSavedReport" data-id="'+escA(hh.id)+'" style="flex:1;text-align:left;background:transparent;border:none;padding:14px;cursor:pointer;display:flex;align-items:center;gap:13px;min-width:0"><div style="width:48px;height:48px;border-radius:13px;background:'+ov.bg+';color:'+ov.color+';display:grid;place-items:center;flex:none;font-size:18px;font-weight:800">'+ov.scoreLabel+'</div><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:800;color:#1A2520">'+esc(hh.dateLabel)+'</div><div style="font-size:12px;font-weight:600;color:#8A938E;margin-top:3px">'+ov.ok+' correctos · '+ov.warn+' atención · '+ov.bad+' inc.</div><div style="font-size:11.5px;font-weight:700;color:#017C36;margin-top:5px">Ver informe ›</div></div></button><button data-act="removeAudit" data-id="'+escA(hh.id)+'" style="background:transparent;border:none;color:#CC3340;padding:0 16px;font-size:20px;cursor:pointer;align-self:stretch">×</button></div>'; });
+    list.forEach(function(hh){ var ov=hh.overall; h+='<div style="background:#fff;border:1px solid #E9EDEB;border-radius:16px;overflow:hidden"><div style="display:flex;align-items:center"><button data-act="openSavedReport" data-id="'+escA(hh.id)+'" style="flex:1;text-align:left;background:transparent;border:none;padding:14px;cursor:pointer;display:flex;align-items:center;gap:13px;min-width:0"><div style="width:48px;height:48px;border-radius:13px;background:'+ov.bg+';color:'+ov.color+';display:grid;place-items:center;flex:none;font-size:18px;font-weight:800">'+ov.scoreLabel+'</div><div style="flex:1;min-width:0"><div style="font-size:14.5px;font-weight:800;color:#1A2520">'+esc(hh.dateLabel)+'</div><div style="font-size:12px;font-weight:600;color:#8A938E;margin-top:3px">'+ov.ok+' correctos · '+ov.warn+' atención · '+ov.bad+' inc.</div><div style="font-size:11.5px;font-weight:700;color:#017C36;margin-top:5px">Ver informe ›</div></div></button><button data-act="removeAudit" data-id="'+escA(hh.id)+'" style="background:transparent;border:none;color:#CC3340;padding:0 16px;font-size:20px;cursor:pointer;align-self:stretch">×</button></div><button data-act="reopenAudit" data-id="'+escA(hh.id)+'" style="width:100%;background:#E6F4EC;border:none;border-top:1px solid #E9EDEB;color:#017C36;padding:12px;font-size:13px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">✏️ Continuar / editar esta auditoría</button></div>'; });
     h+='</div></div>';
     return h;
   }
@@ -567,7 +571,7 @@ window.onerror = function(msg, src, line, col){
     if(ap.length){ h+='<div style="font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#8A938E;margin:18px 0 10px">Plan de acción</div>'; ap.forEach(function(p){ h+='<div style="border-left:3px solid '+p.color+';padding:7px 0 7px 11px;margin-bottom:9px"><div style="font-size:12px;font-weight:700;color:#1A2520">'+esc(p.name)+'</div><div style="font-size:11.5px;color:#69756E;margin-top:2px">'+esc(p.action)+' · <b>'+esc(p.responsible)+'</b> · '+esc(p.dueText)+'</div></div>'; }); }
     h+='<div style="margin-top:18px;padding-top:14px;border-top:1px solid #ECEFED;text-align:center;font-size:10px;color:#A6AEA9;font-weight:600">Feu Vert · Informe generado automáticamente · '+esc(biz.date)+'</div></div></div>';
     // actions
-    h+='<div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:412px;padding:14px 18px;background:linear-gradient(0deg,#454B47 75%,rgba(69,75,71,0));display:flex;gap:10px"><button data-act="downloadPdf" style="flex:1;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:14px;padding:15px;font-size:14px;font-weight:700;cursor:pointer">'+(state.busy?'Generando…':'Descargar PDF')+'</button><button data-act="openEmail" style="flex:1.3;background:#fff;color:#017C36;border:none;border-radius:14px;padding:15px;font-size:14px;font-weight:800;cursor:pointer">Enviar por email</button></div>';
+    h+='<div style="position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:412px;padding:14px 18px;background:linear-gradient(0deg,#454B47 75%,rgba(69,75,71,0));display:flex;gap:10px">'+((state.returnTo==='centerDetail'&&state.savedView&&state.savedView.evals)?'<button data-act="reopenAudit" data-id="'+escA(state.savedView.id)+'" style="flex:1;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:14px;padding:15px;font-size:14px;font-weight:700;cursor:pointer">✏️ Editar</button>':'')+'<button data-act="downloadPdf" style="flex:1;background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:14px;padding:15px;font-size:14px;font-weight:700;cursor:pointer">'+(state.busy?'Generando…':'Descargar PDF')+'</button><button data-act="openEmail" style="flex:1.3;background:#fff;color:#017C36;border:none;border-radius:14px;padding:15px;font-size:14px;font-weight:800;cursor:pointer">Enviar por email</button></div>';
     // hidden A4
     h+=renderA4(rep);
     h+='</div>';
