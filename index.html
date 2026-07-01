@@ -239,10 +239,15 @@ window.onerror = function(msg, src, line, col){
       completionPct:(total?Math.round(evald/total*100):0)+'%',
       ring:'conic-gradient('+oColor+' '+(score*3.6)+'deg, #E6EAE8 0deg)',
       ringLight:'conic-gradient(#fff '+(score*3.6)+'deg, rgba(255,255,255,.25) 0deg)' };
-    var groups = areas.map(function(a){ return { name:a.name, items:a.elements.map(function(el){ var e=evals[el.id]||{status:'pending'}; var m=STATUS[e.status]||STATUS.pending;
-      return { name:el.name, color:m.color, statusLabel:m.label,
-        scoreText:'',
-        comment:e.comment||'', hasComment:!!(e.comment), photos:(e.photos&&e.photos.length)?e.photos:(e.photo?[e.photo]:[]) }; }) }; });
+    // Solo áreas analizadas (con al menos un punto evaluado) y, dentro de ellas, solo los puntos evaluados
+    var groups = areas.map(function(a){
+      var items = a.elements.filter(function(el){ var e=evals[el.id]||{}; return e.status && e.status!=='pending'; })
+        .map(function(el){ var e=evals[el.id]||{status:'pending'}; var m=STATUS[e.status]||STATUS.pending;
+          return { name:el.name, color:m.color, statusLabel:m.label,
+            scoreText:'',
+            comment:e.comment||'', hasComment:!!(e.comment), photos:(e.photos&&e.photos.length)?e.photos:(e.photo?[e.photo]:[]) }; });
+      return { name:a.name, items:items };
+    }).filter(function(g){ return g.items.length>0; });
     var actionPlan=[];
     areas.forEach(function(a){ a.elements.forEach(function(el){ var e=evals[el.id]||{};
       if(e.status==='bad'||e.status==='warn'){ var m=STATUS[e.status];
@@ -328,14 +333,24 @@ window.onerror = function(msg, src, line, col){
       if(!pages.length){ reject(new Error('no-target')); return; }
       var JsPDF=window.jspdf.jsPDF;
       var pdf=new JsPDF({unit:'mm',format:'a4',orientation:'portrait'});
-      var i=0;
+      var SCALE=2, PAGE_H=1123*SCALE; // alto de una A4 en píxeles del canvas
+      var first=true, i=0;
+      function addSlices(canvas){
+        var total=canvas.height, n=Math.max(1,Math.ceil((total-6)/PAGE_H));
+        for(var p=0;p<n;p++){
+          var sh=Math.min(PAGE_H, total-p*PAGE_H);
+          var pc=document.createElement('canvas'); pc.width=canvas.width; pc.height=PAGE_H;
+          var ctx=pc.getContext('2d'); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,pc.width,pc.height);
+          ctx.drawImage(canvas, 0, p*PAGE_H, canvas.width, sh, 0, 0, canvas.width, sh);
+          if(!first) pdf.addPage('a4','portrait');
+          first=false;
+          pdf.addImage(pc.toDataURL('image/jpeg',0.92),'JPEG',0,0,210,297,undefined,'FAST');
+        }
+      }
       function next(){
         if(i>=pages.length){ resolve(pdf); return; }
-        window.html2canvas(pages[i],{scale:2,backgroundColor:'#ffffff',useCORS:true,width:794,height:1123,windowWidth:794,windowHeight:1123}).then(function(canvas){
-          var img=canvas.toDataURL('image/jpeg',0.92);
-          if(i>0) pdf.addPage('a4','portrait');
-          pdf.addImage(img,'JPEG',0,0,210,297,undefined,'FAST');
-          i++; next();
+        window.html2canvas(pages[i],{scale:SCALE,backgroundColor:'#ffffff',useCORS:true,windowWidth:794}).then(function(canvas){
+          addSlices(canvas); i++; next();
         }).catch(reject);
       }
       next();
@@ -489,7 +504,7 @@ window.onerror = function(msg, src, line, col){
     var st=areaStat(area);
     var h='<div>';
     h+='<div style="background:'+GRAD+';color:#fff;padding:calc(env(safe-area-inset-top) + 14px) 18px 22px;border-radius:0 0 24px 24px">';
-    h+='<div style="display:flex;align-items:center;gap:12px"><button data-act="goHome" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:36px;height:36px;border-radius:11px;font-size:20px;cursor:pointer;flex:none">‹</button><div style="flex:1"><div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.8">Área de control</div><div style="font-size:19px;font-weight:800;line-height:1.15;margin-top:2px">'+esc(area.name)+'</div></div><button data-act="toggleEdit" style="background:rgba(255,255,255,.18);border:none;color:#fff;padding:8px 11px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;flex:none">'+(state.editing?'Listo':'Editar')+'</button></div>';
+    h+='<div style="display:flex;align-items:center;gap:12px"><button data-act="goHome" style="background:rgba(255,255,255,.18);border:none;color:#fff;width:36px;height:36px;border-radius:11px;font-size:20px;cursor:pointer;flex:none">‹</button><div style="flex:1"><div style="font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;opacity:.8">Área de control</div>'+(state.editing?'<input data-input="areaName" data-id="'+area.id+'" value="'+escA(area.name)+'" style="width:100%;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);border-radius:9px;color:#fff;font-size:18px;font-weight:800;line-height:1.15;margin-top:4px;padding:6px 9px"/>':'<div style="font-size:19px;font-weight:800;line-height:1.15;margin-top:2px">'+esc(area.name)+'</div>')+'</div><button data-act="toggleEdit" style="background:rgba(255,255,255,.18);border:none;color:#fff;padding:8px 11px;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;flex:none">'+(state.editing?'Listo':'Editar')+'</button></div>';
     h+='<div style="display:flex;gap:14px;margin-top:14px;font-size:12.5px;font-weight:700"><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#9FF0B7"></span>'+st.ok+' correctos</span><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#FFD27A"></span>'+st.warn+' atención</span><span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:#FF9AA0"></span>'+st.bad+' inc.</span></div>';
     h+='</div>';
     h+='<div style="padding:16px 18px 30px;display:flex;flex-direction:column;gap:11px">';
@@ -642,14 +657,14 @@ window.onerror = function(msg, src, line, col){
 
   function renderA4(rep){
     var ov=rep.overall, biz=rep.biz, ap=rep.actionPlan, groups=rep.groups;
-    var h='<div id="a4-report" class="a4-page" style="position:fixed;left:-10000px;top:0;width:794px;height:1123px;background:#fff;color:#1A2520;font-family:\'Plus Jakarta Sans\',sans-serif;overflow:hidden">';
+    var h='<div id="a4-report" class="a4-page" style="position:fixed;left:-10000px;top:0;width:794px;min-height:1123px;background:#fff;color:#1A2520;font-family:\'Plus Jakarta Sans\',sans-serif;display:flex;flex-direction:column">';
     h+='<div style="background:linear-gradient(135deg,#017C36,#02A546);color:#fff;padding:30px 40px 26px"><div style="display:flex;justify-content:space-between;align-items:flex-start"><div style="font-style:italic;font-weight:800;font-size:30px;letter-spacing:-.5px">Feu Vert</div><div style="text-align:right;font-size:12px;font-weight:700;letter-spacing:.16em;opacity:.92;line-height:1.5">INFORME DE<br>AUDITORÍA COMERCIAL</div></div><div style="font-size:25px;font-weight:800;margin-top:18px">'+esc(biz.name)+'</div><div style="font-size:13px;font-weight:500;opacity:.92;margin-top:3px">'+esc(biz.location)+'</div><div style="display:flex;gap:28px;margin-top:14px;font-size:12.5px;font-weight:600;opacity:.95"><span>Fecha: '+esc(biz.date)+'</span><span>Auditor: '+esc(biz.auditor)+'</span></div></div>';
     h+='<div style="display:flex;align-items:center;gap:24px;padding:22px 40px;border-bottom:2px solid #ECEFED"><div style="width:84px;height:84px;border-radius:50%;border:7px solid '+ov.color+';display:grid;place-items:center;flex:none"><div style="text-align:center"><div style="font-size:26px;font-weight:800;color:'+ov.color+';line-height:1">'+ov.scoreLabel+'</div><div style="font-size:9px;font-weight:700;color:#8A938E;letter-spacing:.08em">ÍNDICE</div></div></div><div style="flex:1"><div style="display:inline-block;background:'+ov.bg+';color:'+ov.color+';font-size:15px;font-weight:800;padding:6px 14px;border-radius:9px">'+esc(ov.label)+'</div><div style="font-size:13px;color:#69756E;font-weight:600;margin-top:9px">'+ov.evaluated+' de '+ov.total+' puntos evaluados</div></div><div style="display:flex;gap:9px;flex:none"><div style="background:#E6F4EC;border-radius:12px;padding:11px 15px;text-align:center"><div style="font-size:22px;font-weight:800;color:#1B8C4E;line-height:1">'+ov.ok+'</div><div style="font-size:10px;font-weight:700;color:#1B8C4E;margin-top:3px">Correctos</div></div><div style="background:#FBF1DA;border-radius:12px;padding:11px 15px;text-align:center"><div style="font-size:22px;font-weight:800;color:#CE8500;line-height:1">'+ov.warn+'</div><div style="font-size:10px;font-weight:700;color:#CE8500;margin-top:3px">Atención</div></div><div style="background:#FBE7E9;border-radius:12px;padding:11px 15px;text-align:center"><div style="font-size:22px;font-weight:800;color:#CC3340;line-height:1">'+ov.bad+'</div><div style="font-size:10px;font-weight:700;color:#CC3340;margin-top:3px">Incidencias</div></div></div></div>';
     h+='<div style="padding:20px 40px 8px"><div style="font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#8A938E;margin-bottom:13px">Detalle por áreas</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 32px;align-items:start">';
     groups.forEach(function(g){ h+='<div style="margin-bottom:15px"><div style="font-size:13px;font-weight:800;color:#017C36;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid #E6EAE8">'+esc(g.name)+'</div>'; g.items.forEach(function(it){ h+='<div style="display:flex;gap:8px;align-items:flex-start;padding:4px 0"><span style="width:8px;height:8px;border-radius:50%;background:'+it.color+';flex:none;margin-top:5px"></span><div style="flex:1;min-width:0"><div style="font-size:11.5px;font-weight:600;color:#1A2520;line-height:1.3">'+esc(it.name)+'</div>'+(it.hasComment?'<div style="font-size:10.5px;color:#9AA39E;margin-top:1px;line-height:1.25">'+esc(it.comment)+'</div>':'')+'</div><span style="font-size:10.5px;font-weight:800;color:'+it.color+';flex:none;white-space:nowrap">'+esc(it.statusLabel)+esc(it.scoreText)+'</span></div>'; }); h+='</div>'; });
     h+='</div></div>';
     if(ap.length){ h+='<div style="padding:4px 40px 0"><div style="font-size:12px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#8A938E;margin-bottom:10px">Plan de acción</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 32px;align-items:start">'; ap.forEach(function(p){ h+='<div style="border-left:3px solid '+p.color+';padding:4px 0 4px 11px"><div style="font-size:11.5px;font-weight:700;color:#1A2520;line-height:1.25">'+esc(p.name)+'</div><div style="font-size:10.5px;color:#69756E;margin-top:1px;line-height:1.25">'+esc(p.action)+' · <b>'+esc(p.responsible)+'</b> · '+esc(p.dueText)+'</div></div>'; }); h+='</div></div>'; }
-    h+='<div style="position:absolute;bottom:0;left:0;right:0;padding:14px 40px;border-top:1px solid #ECEFED;display:flex;justify-content:space-between;font-size:10px;color:#A6AEA9;font-weight:600"><span>Feu Vert · Auditoría Comercial de Centro</span><span>Generado el '+esc(biz.date)+'</span></div>';
+    h+='<div style="margin-top:auto;padding:14px 40px;border-top:1px solid #ECEFED;display:flex;justify-content:space-between;font-size:10px;color:#A6AEA9;font-weight:600"><span>Feu Vert · Auditoría Comercial de Centro</span><span>Generado el '+esc(biz.date)+'</span></div>';
     h+='</div>';
     return h;
   }
